@@ -35,12 +35,30 @@ else
     case "${MACHINE}" in
         Linux)
             if command -v apt-get &> /dev/null; then
-                sudo apt-get update -qq
-                sudo apt-get install -y -qq openjdk-11-jdk
+                echo "Updating package lists..."
+                sudo apt-get update
+                # Try Java versions in order of preference (11, 17, 21, 8)
+                if apt-cache show openjdk-11-jdk &> /dev/null; then
+                    sudo apt-get install -y openjdk-11-jdk
+                elif apt-cache show openjdk-17-jdk &> /dev/null; then
+                    echo "Java 11 not available, installing Java 17..."
+                    sudo apt-get install -y openjdk-17-jdk
+                elif apt-cache show openjdk-21-jdk &> /dev/null; then
+                    echo "Java 11/17 not available, installing Java 21..."
+                    sudo apt-get install -y openjdk-21-jdk
+                elif apt-cache show openjdk-8-jdk &> /dev/null; then
+                    echo "Installing Java 8 as fallback..."
+                    sudo apt-get install -y openjdk-8-jdk
+                else
+                    echo "Error: No OpenJDK package found. Try running:"
+                    echo "  sudo apt-get update"
+                    echo "  sudo apt-cache search openjdk"
+                    exit 1
+                fi
             elif command -v yum &> /dev/null; then
-                sudo yum install -y -q java-11-openjdk-devel
+                sudo yum install -y java-11-openjdk-devel || sudo yum install -y java-17-openjdk-devel
             elif command -v dnf &> /dev/null; then
-                sudo dnf install -y -q java-11-openjdk-devel
+                sudo dnf install -y java-11-openjdk-devel || sudo dnf install -y java-17-openjdk-devel
             else
                 echo "Error: Could not detect package manager"
                 exit 1
