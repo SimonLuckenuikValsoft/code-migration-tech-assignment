@@ -14,6 +14,13 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.sql.*;
 
+import com.itextpdf.text.*;
+import com.itextpdf.text.pdf.*;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
 public class OrdersScreen extends JPanel {
 
     private final MainApp mainApp;
@@ -56,6 +63,10 @@ public class OrdersScreen extends JPanel {
         JButton deleteButton = new JButton("Delete Order");
         deleteButton.addActionListener(e -> deleteOrder());
         buttonPanel.add(deleteButton);
+        
+        JButton reportButton = new JButton("Generate Report");
+        reportButton.addActionListener(e -> generateReport());
+        buttonPanel.add(reportButton);
         
         add(buttonPanel, BorderLayout.SOUTH);
     }
@@ -153,6 +164,263 @@ public class OrdersScreen extends JPanel {
                 e.printStackTrace();
                 JOptionPane.showMessageDialog(this, "Error deleting order: " + e.getMessage());
             }
+        }
+    }
+    
+    // Generate order summary report
+    // Creates PDF report in reports directory
+    private void generateReport() {
+        try {
+            String reportDir = "reports";
+            String reportFilename = "OrderSummary.pdf";
+            
+            File dir = new File(reportDir);
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+            
+            String filePath = reportDir + File.separator + reportFilename;
+            
+            // Create PDF document
+            Document document = new Document(PageSize.LETTER, 50, 50, 50, 50);
+            PdfWriter writer = PdfWriter.getInstance(document, new FileOutputStream(filePath));
+            document.open();
+            
+            // PDF formatting constants defined inline
+            com.itextpdf.text.Font titleFont = new com.itextpdf.text.Font(com.itextpdf.text.Font.FontFamily.HELVETICA, 18, com.itextpdf.text.Font.BOLD);
+            com.itextpdf.text.Font headerFont = new com.itextpdf.text.Font(com.itextpdf.text.Font.FontFamily.HELVETICA, 12, com.itextpdf.text.Font.BOLD);
+            com.itextpdf.text.Font normalFont = new com.itextpdf.text.Font(com.itextpdf.text.Font.FontFamily.HELVETICA, 10, com.itextpdf.text.Font.NORMAL);
+            com.itextpdf.text.Font smallFont = new com.itextpdf.text.Font(com.itextpdf.text.Font.FontFamily.HELVETICA, 8, com.itextpdf.text.Font.NORMAL);
+            
+            // Add header section
+            Paragraph company = new Paragraph("AIM Order Entry System", headerFont);
+            company.setAlignment(Element.ALIGN_CENTER);
+            document.add(company);
+            document.add(new Paragraph(" "));
+            
+            Paragraph title = new Paragraph("Order Summary Report", titleFont);
+            title.setAlignment(Element.ALIGN_CENTER);
+            document.add(title);
+            
+            SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy HH:mm:ss");
+            Paragraph timestamp = new Paragraph("Generated: " + sdf.format(new Date()), smallFont);
+            timestamp.setAlignment(Element.ALIGN_CENTER);
+            document.add(timestamp);
+            
+            document.add(new Paragraph(" "));
+            document.add(new Paragraph(" "));
+            
+            // Create orders table directly in this method
+            PdfPTable table = new PdfPTable(7);
+            table.setWidthPercentage(100);
+            table.setWidths(new float[]{1.0f, 2.5f, 2.0f, 1.5f, 1.5f, 1.5f, 1.5f});
+            
+            // Add header row
+            BaseColor headerColor = new BaseColor(200, 200, 200);
+            String[] headers = {"Order ID", "Customer", "Date", "Subtotal", "Discount", "Tax", "Total"};
+            for (String header : headers) {
+                PdfPCell cell = new PdfPCell(new Phrase(header, headerFont));
+                cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+                cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+                cell.setBackgroundColor(headerColor);
+                cell.setPadding(5);
+                table.addCell(cell);
+            }
+            
+            // Query database directly - no repository pattern
+            Connection conn = DB.getConn();
+            Statement stmt = conn.createStatement();
+            String sql = "SELECT order_id, cust_name, order_date, subtotal, discount, tax, total FROM orders ORDER BY order_id";
+            ResultSet rs = stmt.executeQuery(sql);
+            
+            // Summary variables
+            int totalOrders = 0;
+            double totalRevenue = 0.0;
+            double totalDiscounts = 0.0;
+            double totalTax = 0.0;
+            
+            // Add data rows with alternating colors
+            boolean alternate = false;
+            BaseColor lightGray = new BaseColor(240, 240, 240);
+            
+            while (rs.next()) {
+                totalOrders++;
+                
+                long orderId = rs.getLong("order_id");
+                String custName = rs.getString("cust_name");
+                String orderDate = rs.getString("order_date");
+                double subtotal = rs.getDouble("subtotal");
+                double discount = rs.getDouble("discount");
+                double tax = rs.getDouble("tax");
+                double total = rs.getDouble("total");
+                
+                totalRevenue += total;
+                totalDiscounts += discount;
+                totalTax += tax;
+                
+                BaseColor rowColor = alternate ? lightGray : BaseColor.WHITE;
+                
+                // Format and add cells
+                PdfPCell cell;
+                
+                cell = new PdfPCell(new Phrase(String.valueOf(orderId), normalFont));
+                cell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+                cell.setBackgroundColor(rowColor);
+                cell.setPadding(5);
+                table.addCell(cell);
+                
+                cell = new PdfPCell(new Phrase(custName, normalFont));
+                cell.setHorizontalAlignment(Element.ALIGN_LEFT);
+                cell.setBackgroundColor(rowColor);
+                cell.setPadding(5);
+                table.addCell(cell);
+                
+                // Format date inline
+                String formattedDate = orderDate;
+                try {
+                    if (orderDate != null && orderDate.length() >= 16) {
+                        String[] parts = orderDate.split(" ");
+                        if (parts.length >= 2) {
+                            String[] dateParts = parts[0].split("-");
+                            String time = parts[1].substring(0, 5);
+                            formattedDate = dateParts[1] + "/" + dateParts[2] + "/" + dateParts[0] + " " + time;
+                        }
+                    }
+                } catch (Exception e) {
+                }
+                
+                cell = new PdfPCell(new Phrase(formattedDate, normalFont));
+                cell.setHorizontalAlignment(Element.ALIGN_LEFT);
+                cell.setBackgroundColor(rowColor);
+                cell.setPadding(5);
+                table.addCell(cell);
+                
+                // Currency formatting inline - repeated code
+                cell = new PdfPCell(new Phrase("$" + String.format("%.2f", subtotal), normalFont));
+                cell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+                cell.setBackgroundColor(rowColor);
+                cell.setPadding(5);
+                table.addCell(cell);
+                
+                cell = new PdfPCell(new Phrase("$" + String.format("%.2f", discount), normalFont));
+                cell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+                cell.setBackgroundColor(rowColor);
+                cell.setPadding(5);
+                table.addCell(cell);
+                
+                cell = new PdfPCell(new Phrase("$" + String.format("%.2f", tax), normalFont));
+                cell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+                cell.setBackgroundColor(rowColor);
+                cell.setPadding(5);
+                table.addCell(cell);
+                
+                cell = new PdfPCell(new Phrase("$" + String.format("%.2f", total), normalFont));
+                cell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+                cell.setBackgroundColor(rowColor);
+                cell.setPadding(5);
+                table.addCell(cell);
+                
+                alternate = !alternate;
+            }
+
+            rs.close();
+            stmt.close();
+            
+            document.add(table);
+            
+            // Add summary section
+            document.add(new Paragraph(" "));
+            document.add(new Paragraph(" "));
+            
+            Paragraph summaryTitle = new Paragraph("Summary Statistics", headerFont);
+            document.add(summaryTitle);
+            document.add(new Paragraph(" "));
+            
+            PdfPTable summaryTable = new PdfPTable(2);
+            summaryTable.setWidthPercentage(50);
+            summaryTable.setHorizontalAlignment(Element.ALIGN_LEFT);
+            summaryTable.setWidths(new float[]{3.0f, 2.0f});
+            
+            BaseColor summaryColor = new BaseColor(230, 230, 230);
+            
+            // Add summary rows
+            PdfPCell labelCell = new PdfPCell(new Phrase("Total Orders:", normalFont));
+            labelCell.setBackgroundColor(summaryColor);
+            labelCell.setPadding(5);
+            labelCell.setBorder(com.itextpdf.text.Rectangle.NO_BORDER);
+            summaryTable.addCell(labelCell);
+            
+            PdfPCell valueCell = new PdfPCell(new Phrase(String.valueOf(totalOrders), headerFont));
+            valueCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            valueCell.setBackgroundColor(summaryColor);
+            valueCell.setPadding(5);
+            valueCell.setBorder(com.itextpdf.text.Rectangle.NO_BORDER);
+            summaryTable.addCell(valueCell);
+            
+            labelCell = new PdfPCell(new Phrase("Total Revenue:", normalFont));
+            labelCell.setBackgroundColor(summaryColor);
+            labelCell.setPadding(5);
+            labelCell.setBorder(com.itextpdf.text.Rectangle.NO_BORDER);
+            summaryTable.addCell(labelCell);
+            
+            valueCell = new PdfPCell(new Phrase("$" + String.format("%.2f", totalRevenue), headerFont));
+            valueCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            valueCell.setBackgroundColor(summaryColor);
+            valueCell.setPadding(5);
+            valueCell.setBorder(com.itextpdf.text.Rectangle.NO_BORDER);
+            summaryTable.addCell(valueCell);
+            
+            labelCell = new PdfPCell(new Phrase("Total Discounts:", normalFont));
+            labelCell.setBackgroundColor(summaryColor);
+            labelCell.setPadding(5);
+            labelCell.setBorder(com.itextpdf.text.Rectangle.NO_BORDER);
+            summaryTable.addCell(labelCell);
+            
+            valueCell = new PdfPCell(new Phrase("$" + String.format("%.2f", totalDiscounts), headerFont));
+            valueCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            valueCell.setBackgroundColor(summaryColor);
+            valueCell.setPadding(5);
+            valueCell.setBorder(com.itextpdf.text.Rectangle.NO_BORDER);
+            summaryTable.addCell(valueCell);
+            
+            labelCell = new PdfPCell(new Phrase("Total Tax Collected:", normalFont));
+            labelCell.setBackgroundColor(summaryColor);
+            labelCell.setPadding(5);
+            labelCell.setBorder(com.itextpdf.text.Rectangle.NO_BORDER);
+            summaryTable.addCell(labelCell);
+            
+            valueCell = new PdfPCell(new Phrase("$" + String.format("%.2f", totalTax), headerFont));
+            valueCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+            valueCell.setBackgroundColor(summaryColor);
+            valueCell.setPadding(5);
+            valueCell.setBorder(com.itextpdf.text.Rectangle.NO_BORDER);
+            summaryTable.addCell(valueCell);
+            
+            document.add(summaryTable);
+            
+            // Close document
+            document.close();
+            
+            JOptionPane.showMessageDialog(this, 
+                "Report generated successfully!\nSaved to: " + filePath,
+                "Report Generated", 
+                JOptionPane.INFORMATION_MESSAGE);
+                
+            // Ask user if they want to open the report
+            int openFile = JOptionPane.showConfirmDialog(this,
+                "Would you like to open the report?",
+                "Open Report",
+                JOptionPane.YES_NO_OPTION);
+                
+            if (openFile == JOptionPane.YES_OPTION) {
+                java.awt.Desktop.getDesktop().open(new java.io.File(filePath));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, 
+                "Error generating report: " + e.getMessage(),
+                "Error", 
+                JOptionPane.ERROR_MESSAGE);
         }
     }
 }

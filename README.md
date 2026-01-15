@@ -87,6 +87,12 @@ To reset the database manually, delete the `orderentry.db` file before running.
   - Tax (14.975% applied after discount)
   - Grand total
 
+### Order Reporting
+- Generate PDF order summary reports
+- Professional formatting with headers and totals
+- Summary statistics (total orders, revenue, discounts, tax)
+- Reports saved to `reports/` directory
+
 ### Discount Tiers & Tax Rates
 
 Discount and tax rates vary by customer type:
