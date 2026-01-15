@@ -14,6 +14,7 @@ public class Customer {
     private String email;
     private String phone;
     private String address;
+    private String customerType; // STANDARD, PREMIUM, VIP
 
     public Customer() {
     }
@@ -24,6 +25,15 @@ public class Customer {
         this.email = email;
         this.phone = phone;
         this.address = address;
+    }
+
+    public Customer(Long id, String name, String email, String phone, String address, String customerType) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.phone = phone;
+        this.address = address;
+        this.customerType = customerType;
     }
 
     public Long getId() {
@@ -64,6 +74,14 @@ public class Customer {
 
     public void setAddress(String address) {
         this.address = address;
+    }
+
+    public String getCustomerType() {
+        return customerType;
+    }
+
+    public void setCustomerType(String customerType) {
+        this.customerType = customerType;
     }
 
     @Override

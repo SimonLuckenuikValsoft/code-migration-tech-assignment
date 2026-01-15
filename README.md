@@ -87,12 +87,21 @@ To reset the database manually, delete the `orderentry.db` file before running.
   - Tax (14.975% applied after discount)
   - Grand total
 
-### Discount Tiers
+### Discount Tiers & Tax Rates
 
-The system automatically applies discounts based on order subtotal:
-- Orders over $600: 5% discount
-- Orders over $1200: 10% discount  
-- Orders over $2500: 15% discount
+Discount and tax rates vary by customer type:
+
+**STANDARD Customers:**
+- Discount tiers: 5% over $500, 10% over $1000, 15% over $2000
+- Tax rate: 14.975%
+
+**PREMIUM Customers:**
+- Discount tiers: 7% over $400, 12% over $800, 18% over $1500
+- Tax rate: 12%
+
+**VIP Customers:**
+- Flat discount: 20% (no minimum)
+- Tax rate: 10%
 
 ## Database
 

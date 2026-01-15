@@ -25,6 +25,7 @@ public class OrderEditorDialog extends JDialog {
     
     private JComboBox<String> customerCombo;
     private Map<String, Long> customerMap = new HashMap<>();
+    private Map<String, String> customerTypeMap = new HashMap<>();
     private JTable linesTable;
     private DefaultTableModel linesTableModel;
     
@@ -34,7 +35,8 @@ public class OrderEditorDialog extends JDialog {
     private JLabel totalLabel;
     private JTextArea statusArea;
     
-    // Tax rate is fixed at 14.975% for all orders
+    // Default tax rate is 14.975% for STANDARD customers
+    // Tax rates vary by customer type: STANDARD=14.975%, PREMIUM=12%, VIP=10%
     private static final BigDecimal TAX_RATE = new BigDecimal("0.14975");
     
     // Temp-table pattern: holds line items in memory before committing to database
@@ -79,6 +81,8 @@ public class OrderEditorDialog extends JDialog {
         topPanel.add(new JLabel("Customer:"));
         customerCombo = new JComboBox<>();
         customerCombo.setPreferredSize(new Dimension(300, 25));
+        // Add listener to recalculate totals when customer selection changes
+        customerCombo.addActionListener(e -> calculateTotals());
         topPanel.add(customerCombo);
         add(topPanel, BorderLayout.NORTH);
         
@@ -158,14 +162,17 @@ public class OrderEditorDialog extends JDialog {
         try {
             Connection conn = DB.getConn();
             Statement stmt = conn.createStatement();
-            String sql = "SELECT cust_id, cust_name FROM customer ORDER BY cust_name";
+            String sql = "SELECT cust_id, cust_name, customer_type FROM customer ORDER BY cust_name";
             ResultSet rs = stmt.executeQuery(sql);
             
             while (rs.next()) {
                 long id = rs.getLong("cust_id");
                 String name = rs.getString("cust_name");
+                String customerType = rs.getString("customer_type");
+                if (customerType == null) customerType = "STANDARD";
                 customerCombo.addItem(name);
                 customerMap.put(name, id);
+                customerTypeMap.put(name, customerType);
             }
             
             rs.close();
@@ -226,7 +233,10 @@ public class OrderEditorDialog extends JDialog {
     }
     
     // Calculate order totals including discounts and tax
-    // Discount tiers: 5% over $600, 10% over $1200, 15% over $2500
+    // Discount and tax rules vary by customer type:
+    // STANDARD: Tiered discounts (5% @ $500, 10% @ $1000, 15% @ $2000), 14.975% tax
+    // PREMIUM: Tiered discounts (7% @ $400, 12% @ $800, 18% @ $1500), 12% tax
+    // VIP: Flat 20% discount, 10% tax
     // Tax is applied to subtotal after discount
     private void calculateTotals() {
         BigDecimal subtotal = BigDecimal.ZERO;
@@ -236,18 +246,46 @@ public class OrderEditorDialog extends JDialog {
         }
         subtotal = subtotal.setScale(2, RoundingMode.HALF_UP);
         
+        // Get customer type for calculation rules
+        String customerName = (String) customerCombo.getSelectedItem();
+        String customerType = customerTypeMap.get(customerName);
+        if (customerType == null) customerType = "STANDARD";
+        
         BigDecimal discount = BigDecimal.ZERO;
-        if (subtotal.compareTo(new BigDecimal("2000")) >= 0) {
-            discount = subtotal.multiply(new BigDecimal("0.15"));
-        } else if (subtotal.compareTo(new BigDecimal("1000")) >= 0) {
-            discount = subtotal.multiply(new BigDecimal("0.10"));
-        } else if (subtotal.compareTo(new BigDecimal("500")) >= 0) {
-            discount = subtotal.multiply(new BigDecimal("0.05"));
+        BigDecimal taxRate = TAX_RATE;
+        
+        // Calculate discount based on customer type
+        // Note: This hardcoded approach is intentional legacy pattern
+        // Candidates should refactor to use Strategy pattern
+        if ("VIP".equals(customerType)) {
+            // VIP: Flat 20% discount
+            discount = subtotal.multiply(new BigDecimal("0.20"));
+            taxRate = new BigDecimal("0.10"); // 10% tax for VIP
+        } else if ("PREMIUM".equals(customerType)) {
+            // PREMIUM: Enhanced tiered discounts
+            if (subtotal.compareTo(new BigDecimal("1500")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.18"));
+            } else if (subtotal.compareTo(new BigDecimal("800")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.12"));
+            } else if (subtotal.compareTo(new BigDecimal("400")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.07"));
+            }
+            taxRate = new BigDecimal("0.12"); // 12% tax for PREMIUM
+        } else {
+            // STANDARD: Original tiered discounts
+            if (subtotal.compareTo(new BigDecimal("2000")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.15"));
+            } else if (subtotal.compareTo(new BigDecimal("1000")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.10"));
+            } else if (subtotal.compareTo(new BigDecimal("500")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.05"));
+            }
+            // taxRate remains TAX_RATE (14.975%) for STANDARD
         }
         discount = discount.setScale(2, RoundingMode.HALF_UP);
         
         BigDecimal taxableAmount = subtotal.subtract(discount);
-        BigDecimal tax = taxableAmount.multiply(TAX_RATE);
+        BigDecimal tax = taxableAmount.multiply(taxRate);
         tax = tax.setScale(2, RoundingMode.HALF_UP);
         
         BigDecimal total = subtotal.subtract(discount).add(tax);
@@ -373,20 +411,42 @@ public class OrderEditorDialog extends JDialog {
         }
         subtotal = subtotal.setScale(2, RoundingMode.HALF_UP);
         
+        // Get customer type for calculation rules
+        String customerType = customerTypeMap.get(customerName);
+        if (customerType == null) customerType = "STANDARD";
+        
         BigDecimal discount = BigDecimal.ZERO;
-        if (subtotal.compareTo(new BigDecimal("2000")) >= 0) {
-            discount = subtotal.multiply(new BigDecimal("0.15"));
-        } else if (subtotal.compareTo(new BigDecimal("1000")) >= 0) {
-            discount = subtotal.multiply(new BigDecimal("0.10"));
-        } else if (subtotal.compareTo(new BigDecimal("500")) >= 0) {
-            discount = subtotal.multiply(new BigDecimal("0.05"));
+        BigDecimal maxDiscountRate = new BigDecimal("0.15");
+        
+        // Calculate discount based on customer type
+        if ("VIP".equals(customerType)) {
+            discount = subtotal.multiply(new BigDecimal("0.20"));
+            maxDiscountRate = new BigDecimal("0.20");
+        } else if ("PREMIUM".equals(customerType)) {
+            if (subtotal.compareTo(new BigDecimal("1500")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.18"));
+            } else if (subtotal.compareTo(new BigDecimal("800")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.12"));
+            } else if (subtotal.compareTo(new BigDecimal("400")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.07"));
+            }
+            maxDiscountRate = new BigDecimal("0.18");
+        } else {
+            // STANDARD
+            if (subtotal.compareTo(new BigDecimal("2000")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.15"));
+            } else if (subtotal.compareTo(new BigDecimal("1000")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.10"));
+            } else if (subtotal.compareTo(new BigDecimal("500")) >= 0) {
+                discount = subtotal.multiply(new BigDecimal("0.05"));
+            }
         }
         discount = discount.setScale(2, RoundingMode.HALF_UP);
         
         if (subtotal.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal discountRate = discount.divide(subtotal, 4, RoundingMode.HALF_UP);
-            if (discountRate.compareTo(new BigDecimal("0.15")) > 0) {
-                errors.add("Discount cannot exceed 15%");
+            if (discountRate.compareTo(maxDiscountRate) > 0) {
+                errors.add("Discount cannot exceed " + maxDiscountRate.multiply(new BigDecimal("100")).intValue() + "%");
             }
         }
         
@@ -404,8 +464,16 @@ public class OrderEditorDialog extends JDialog {
             Connection conn = DB.getConn();
             Statement stmt = conn.createStatement();
             
+            // Calculate tax based on customer type (customerType already defined above)
+            BigDecimal taxRate = TAX_RATE;
+            if ("VIP".equals(customerType)) {
+                taxRate = new BigDecimal("0.10");
+            } else if ("PREMIUM".equals(customerType)) {
+                taxRate = new BigDecimal("0.12");
+            }
+            
             BigDecimal taxableAmount = subtotal.subtract(discount);
-            BigDecimal tax = taxableAmount.multiply(TAX_RATE).setScale(2, RoundingMode.HALF_UP);
+            BigDecimal tax = taxableAmount.multiply(taxRate).setScale(2, RoundingMode.HALF_UP);
             BigDecimal total = subtotal.subtract(discount).add(tax);
             
             if (orderId == 0) {

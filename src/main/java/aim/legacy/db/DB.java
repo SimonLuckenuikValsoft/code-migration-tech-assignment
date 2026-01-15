@@ -40,7 +40,16 @@ public class DB {
                 "cust_name TEXT NOT NULL, " +
                 "email TEXT, " +
                 "phone TEXT, " +
-                "address TEXT)");
+                "address TEXT, " +
+                "customer_type TEXT DEFAULT 'STANDARD')");
+            
+            // Add customer_type column to existing databases if it doesn't exist
+            // This handles migration from older database versions
+            try {
+                stmt.execute("ALTER TABLE customer ADD COLUMN customer_type TEXT DEFAULT 'STANDARD'");
+            } catch (SQLException e) {
+                // Column already exists, ignore error
+            }
             
             stmt.execute("CREATE TABLE IF NOT EXISTS product (" +
                 "prod_id INTEGER PRIMARY KEY, " +
@@ -81,11 +90,11 @@ public class DB {
     private static void seedData() throws SQLException {
         Statement stmt = conn.createStatement();
         
-        stmt.execute("INSERT INTO customer VALUES (1, 'John Doe', 'john.doe@email.com', '555-0101', '123 Main St')");
-        stmt.execute("INSERT INTO customer VALUES (2, 'Jane Smith', 'jane.smith@email.com', '555-0102', '456 Oak Ave')");
-        stmt.execute("INSERT INTO customer VALUES (3, 'Bob Johnson', 'bob.j@email.com', '555-0103', '789 Pine Rd')");
-        stmt.execute("INSERT INTO customer VALUES (4, 'Alice Williams', 'alice.w@email.com', '555-0104', '321 Elm St')");
-        stmt.execute("INSERT INTO customer VALUES (5, 'Charlie Brown', 'charlie.b@email.com', '555-0105', '654 Maple Dr')");
+        stmt.execute("INSERT INTO customer VALUES (1, 'John Doe', 'john.doe@email.com', '555-0101', '123 Main St', 'STANDARD')");
+        stmt.execute("INSERT INTO customer VALUES (2, 'Jane Smith', 'jane.smith@email.com', '555-0102', '456 Oak Ave', 'PREMIUM')");
+        stmt.execute("INSERT INTO customer VALUES (3, 'Bob Johnson', 'bob.j@email.com', '555-0103', '789 Pine Rd', 'STANDARD')");
+        stmt.execute("INSERT INTO customer VALUES (4, 'Alice Williams', 'alice.w@email.com', '555-0104', '321 Elm St', 'VIP')");
+        stmt.execute("INSERT INTO customer VALUES (5, 'Charlie Brown', 'charlie.b@email.com', '555-0105', '654 Maple Dr', 'PREMIUM')");
         
         // Product catalog with standard pricing
         stmt.execute("INSERT INTO product VALUES (1, 'Laptop', 1299.99)");
