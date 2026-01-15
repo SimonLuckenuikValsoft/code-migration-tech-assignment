@@ -51,6 +51,13 @@ public class DB {
                 // Column already exists, ignore error
             }
             
+            // This is a "hacky" migration that doesn't properly handle data
+            try {
+                stmt.execute("ALTER TABLE order_line ADD COLUMN container_id INTEGER");
+            } catch (SQLException e) {
+                // Column already exists, ignore error
+            }
+            
             stmt.execute("CREATE TABLE IF NOT EXISTS product (" +
                 "prod_id INTEGER PRIMARY KEY, " +
                 "prod_name TEXT NOT NULL, " +
@@ -66,9 +73,31 @@ public class DB {
                 "tax REAL, " +
                 "total REAL)");
             
+            // Shipper table - represents shipment groupings within an order
+            stmt.execute("CREATE TABLE IF NOT EXISTS shipper (" +
+                "shipper_id INTEGER PRIMARY KEY, " +
+                "order_id INTEGER NOT NULL, " +
+                "shipper_number TEXT, " +
+                "carrier TEXT, " +
+                "tracking_number TEXT, " +
+                "ship_date TEXT, " +
+                "total_weight REAL)");
+            
+            // Container/Pallet table - represents physical containers in a shipment
+            stmt.execute("CREATE TABLE IF NOT EXISTS container (" +
+                "container_id INTEGER PRIMARY KEY, " +
+                "shipper_id INTEGER NOT NULL, " +
+                "order_id INTEGER NOT NULL, " +
+                "container_number TEXT, " +
+                "container_type TEXT, " +
+                "weight REAL, " +
+                "dimensions TEXT)");
+            
+            // Order line now references container instead of order directly
             stmt.execute("CREATE TABLE IF NOT EXISTS order_line (" +
                 "line_id INTEGER PRIMARY KEY, " +
                 "order_id INTEGER NOT NULL, " +
+                "container_id INTEGER, " +
                 "prod_id INTEGER, " +
                 "prod_name TEXT, " +
                 "quantity INTEGER, " +
@@ -111,14 +140,33 @@ public class DB {
         // Sample orders with pre-calculated totals
         // Order 1: Total should be around $2100 with 5% discount applied
         stmt.execute("INSERT INTO orders VALUES (1, 1, 'John Doe', '2024-01-15 10:30:00', 1929.97, 96.50, 274.99, 2108.46)");
-        stmt.execute("INSERT INTO order_line VALUES (1, 1, 1, 'Laptop', 1, 1299.99)");
-        stmt.execute("INSERT INTO order_line VALUES (2, 1, 3, 'Tablet', 1, 599.99)");
-        stmt.execute("INSERT INTO order_line VALUES (3, 1, 6, 'Mouse', 1, 29.99)");
+        
+        // Shippers for Order 1 - demonstrating multi-level hierarchy
+        stmt.execute("INSERT INTO shipper VALUES (1, 1, 'SHIP-001', 'FedEx', 'FDX12345678', '2024-01-16', 15.5)");
+        stmt.execute("INSERT INTO shipper VALUES (2, 1, 'SHIP-002', 'UPS', 'UPS98765432', '2024-01-16', 8.2)");
+        
+        // Containers for Order 1 shippers
+        stmt.execute("INSERT INTO container VALUES (1, 1, 1, 'CTN-001-A', 'Box', 12.5, '24x18x12')");
+        stmt.execute("INSERT INTO container VALUES (2, 1, 1, 'CTN-001-B', 'Box', 3.0, '12x12x6')");
+        stmt.execute("INSERT INTO container VALUES (3, 2, 1, 'CTN-002-A', 'Box', 8.2, '18x12x8')");
+        
+        // Order lines now reference containers
+        stmt.execute("INSERT INTO order_line VALUES (1, 1, 1, 1, 'Laptop', 1, 1299.99)");
+        stmt.execute("INSERT INTO order_line VALUES (2, 1, 1, 3, 'Tablet', 1, 599.99)");
+        stmt.execute("INSERT INTO order_line VALUES (3, 1, 3, 6, 'Mouse', 1, 29.99)");
         
         // Order 2: Smaller order with standard tax calculation
         stmt.execute("INSERT INTO orders VALUES (2, 2, 'Jane Smith', '2024-01-16 14:15:00', 549.98, 27.50, 78.38, 600.86)");
-        stmt.execute("INSERT INTO order_line VALUES (4, 2, 4, 'Monitor', 1, 349.99)");
-        stmt.execute("INSERT INTO order_line VALUES (5, 2, 7, 'Headphones', 1, 199.99)");
+        
+        // Shipper for Order 2
+        stmt.execute("INSERT INTO shipper VALUES (3, 2, 'SHIP-003', 'USPS', 'USPS111222333', '2024-01-17', 18.0)");
+        
+        // Containers for Order 2
+        stmt.execute("INSERT INTO container VALUES (4, 3, 2, 'CTN-003-A', 'Pallet', 18.0, '48x40x60')");
+        
+        // Order lines for Order 2
+        stmt.execute("INSERT INTO order_line VALUES (4, 2, 4, 4, 'Monitor', 1, 349.99)");
+        stmt.execute("INSERT INTO order_line VALUES (5, 2, 4, 7, 'Headphones', 1, 199.99)");
         
         stmt.close();
     }

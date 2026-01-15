@@ -80,11 +80,17 @@ To reset the database manually, delete the `orderentry.db` file before running.
 
 ### Order Processing
 - Create new orders for customers
-- Add multiple product line items to each order
+- Multi-level order hierarchy:
+  - **Orders** contain **Shippers**
+  - **Shippers** contain **Containers** (boxes, pallets, etc.)
+  - **Containers** contain **Line Items** (products)
+- When adding line items, you select or create the appropriate shipper and container
+- Track carrier information, tracking numbers, and container details
+- View hierarchical structure with the "View Hierarchy" button
 - Automatic calculation of:
   - Subtotal (sum of all line items)
   - Discount (based on order value - see below)
-  - Tax (14.975% applied after discount)
+  - Tax (varies by customer type - applied after discount)
   - Grand total
 
 ### Order Reporting
@@ -112,16 +118,27 @@ Discount and tax rates vary by customer type:
 ## Database
 
 The application uses SQLite for data storage. The database file (`orderentry.db`) is automatically created on first run and includes sample data:
-- 5 sample customers
+- 5 sample customers (with different customer types: STANDARD, PREMIUM, VIP)
 - 10 sample products
-- 2 sample orders
+- 2 sample orders with complete hierarchy:
+  - Multiple shippers per order
+  - Multiple containers per shipper
+  - Line items organized by container
+
+### Database Schema
+- `customer` - Customer information and type
+- `product` - Product catalog
+- `orders` - Order headers with totals
+- `shipper` - Shipment information (carrier, tracking)
+- `container` - Physical containers/pallets
+- `order_line` - Order line items (linked to containers)
 
 ## Project Structure
 
 ```
 src/main/java/aim/legacy/
 ├── db/          - Database connection and initialization
-├── domain/      - Data model classes (Customer, Product, Order, OrderLine)
+├── domain/      - Data model classes (Customer, Product, Order, OrderLine, Shipper, Container)
 └── ui/          - Swing user interface screens
 ```
 

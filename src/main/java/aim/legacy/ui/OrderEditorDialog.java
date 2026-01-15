@@ -39,25 +39,56 @@ public class OrderEditorDialog extends JDialog {
     // Tax rates vary by customer type: STANDARD=14.975%, PREMIUM=12%, VIP=10%
     private static final BigDecimal TAX_RATE = new BigDecimal("0.14975");
     
-    // Temp-table pattern: holds line items in memory before committing to database
-    // This is similar to Progress ABL temp-tables for transaction buffering
+
     private class TempLine {
         long lineId;
         long prodId;
         String prodName;
         int qty;
         BigDecimal price;
+        long containerId; // Reference to container
         
-        TempLine(long lid, long pid, String pname, int q, BigDecimal p) {
+        TempLine(long lid, long pid, String pname, int q, BigDecimal p, long cid) {
             lineId = lid;
             prodId = pid;
             prodName = pname;
             qty = q;
             price = p;
+            containerId = cid;
+        }
+    }
+    
+    private class TempShipper {
+        long shipperId;
+        String shipperNumber;
+        String carrier;
+        String trackingNumber;
+        
+        TempShipper(long sid, String snum, String car, String track) {
+            shipperId = sid;
+            shipperNumber = snum;
+            carrier = car;
+            trackingNumber = track;
+        }
+    }
+    
+    private class TempContainer {
+        long containerId;
+        long shipperId;
+        String containerNumber;
+        String containerType;
+        
+        TempContainer(long cid, long sid, String cnum, String ctype) {
+            containerId = cid;
+            shipperId = sid;
+            containerNumber = cnum;
+            containerType = ctype;
         }
     }
     
     private ArrayList<TempLine> tempLines = new ArrayList<>();
+    private ArrayList<TempShipper> tempShippers = new ArrayList<>();
+    private ArrayList<TempContainer> tempContainers = new ArrayList<>();
     
     public OrderEditorDialog(Frame parent, long id) {
         super(parent, id == 0 ? "New Order" : "Edit Order", true);
@@ -196,16 +227,51 @@ public class OrderEditorDialog extends JDialog {
             
             rs.close();
             
-            sql = "SELECT line_id, prod_id, prod_name, quantity, unit_price FROM order_line WHERE order_id = " + orderId;
+            // Load shippers
+            sql = "SELECT shipper_id, shipper_number, carrier, tracking_number FROM shipper WHERE order_id = " + orderId;
             rs = stmt.executeQuery(sql);
             
             while (rs.next()) {
+                TempShipper shipper = new TempShipper(
+                    rs.getLong("shipper_id"),
+                    rs.getString("shipper_number"),
+                    rs.getString("carrier"),
+                    rs.getString("tracking_number")
+                );
+                tempShippers.add(shipper);
+            }
+            
+            rs.close();
+            
+            // Load containers
+            sql = "SELECT container_id, shipper_id, container_number, container_type FROM container WHERE order_id = " + orderId;
+            rs = stmt.executeQuery(sql);
+            
+            while (rs.next()) {
+                TempContainer container = new TempContainer(
+                    rs.getLong("container_id"),
+                    rs.getLong("shipper_id"),
+                    rs.getString("container_number"),
+                    rs.getString("container_type")
+                );
+                tempContainers.add(container);
+            }
+            
+            rs.close();
+            
+            // Load order lines with container reference
+            sql = "SELECT line_id, prod_id, prod_name, quantity, unit_price, container_id FROM order_line WHERE order_id = " + orderId;
+            rs = stmt.executeQuery(sql);
+            
+            while (rs.next()) {
+                long containerId = rs.getLong("container_id");
                 TempLine line = new TempLine(
                     rs.getLong("line_id"),
                     rs.getLong("prod_id"),
                     rs.getString("prod_name"),
                     rs.getInt("quantity"),
-                    new BigDecimal(rs.getString("unit_price"))
+                    new BigDecimal(rs.getString("unit_price")),
+                    containerId
                 );
                 tempLines.add(line);
             }
@@ -214,6 +280,7 @@ public class OrderEditorDialog extends JDialog {
             stmt.close();
             
             refreshLines();
+            updateHierarchyStatus(); // Show hierarchy in status area
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -230,6 +297,37 @@ public class OrderEditorDialog extends JDialog {
                 "$" + lineTotal.setScale(2, RoundingMode.HALF_UP)
             });
         }
+    }
+    
+    // Display hierarchy information in status area
+    private void updateHierarchyStatus() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Order Hierarchy:\n");
+        sb.append("Shippers: ").append(tempShippers.size()).append("\n");
+        sb.append("Containers: ").append(tempContainers.size()).append("\n");
+        sb.append("Line Items: ").append(tempLines.size()).append("\n\n");
+        
+        for (TempShipper shipper : tempShippers) {
+            sb.append("📦 ").append(shipper.shipperNumber)
+              .append(" (").append(shipper.carrier).append(")\n");
+            
+            for (TempContainer container : tempContainers) {
+                if (container.shipperId == shipper.shipperId) {
+                    sb.append("  📦 ").append(container.containerNumber)
+                      .append(" (").append(container.containerType).append(")\n");
+                    
+                    int itemCount = 0;
+                    for (TempLine line : tempLines) {
+                        if (line.containerId == container.containerId) {
+                            itemCount++;
+                        }
+                    }
+                    sb.append("    Items: ").append(itemCount).append("\n");
+                }
+            }
+        }
+        
+        statusArea.setText(sb.toString());
     }
     
     // Calculate order totals including discounts and tax
@@ -255,8 +353,6 @@ public class OrderEditorDialog extends JDialog {
         BigDecimal taxRate = TAX_RATE;
         
         // Calculate discount based on customer type
-        // Note: This hardcoded approach is intentional legacy pattern
-        // Candidates should refactor to use Strategy pattern
         if ("VIP".equals(customerType)) {
             // VIP: Flat 20% discount
             discount = subtotal.multiply(new BigDecimal("0.20"));
@@ -299,6 +395,15 @@ public class OrderEditorDialog extends JDialog {
     
     private void addLine() {
         try {
+            // Step 1: Select or create shipper
+            long shipperId = selectOrCreateShipper();
+            if (shipperId == 0) return; // User cancelled
+            
+            // Step 2: Select or create container
+            long containerId = selectOrCreateContainer(shipperId);
+            if (containerId == 0) return; // User cancelled
+            
+            // Step 3: Select product
             Connection conn = DB.getConn();
             Statement stmt = conn.createStatement();
             String sql = "SELECT prod_id, prod_name, unit_price FROM product ORDER BY prod_name";
@@ -354,13 +459,126 @@ public class OrderEditorDialog extends JDialog {
             String prodName = selected.substring(0, selected.lastIndexOf(" - $"));
             
             long nextLineId = tempLines.size() + 1;
-            TempLine line = new TempLine(nextLineId, prodId, prodName, quantity, price);
+            TempLine line = new TempLine(nextLineId, prodId, prodName, quantity, price, containerId);
             tempLines.add(line);
             
             refreshLines();
             calculateTotals();
+            updateHierarchyStatus();
         } catch (SQLException e) {
             e.printStackTrace();
+        }
+    }
+    
+    private long getNextShipperId() {
+        long max = 0;
+        for (TempShipper s : tempShippers) {
+            if (s.shipperId > max) max = s.shipperId;
+        }
+        return max + 1;
+    }
+    
+    private long getNextContainerId() {
+        long max = 0;
+        for (TempContainer c : tempContainers) {
+            if (c.containerId > max) max = c.containerId;
+        }
+        return max + 1;
+    }
+    
+    // Select existing shipper or create new one
+    private long selectOrCreateShipper() {
+        ArrayList<String> shipperList = new ArrayList<>();
+        shipperList.add("[Create New Shipper]");
+        Map<String, Long> shipperIdMap = new HashMap<>();
+        
+        for (TempShipper s : tempShippers) {
+            String display = s.shipperNumber + " - " + s.carrier;
+            shipperList.add(display);
+            shipperIdMap.put(display, s.shipperId);
+        }
+        
+        String selected = (String) JOptionPane.showInputDialog(
+            this,
+            "Select shipper:",
+            "Select Shipper",
+            JOptionPane.QUESTION_MESSAGE,
+            null,
+            shipperList.toArray(),
+            shipperList.get(0)
+        );
+        
+        if (selected == null) return 0;
+        
+        if (selected.equals("[Create New Shipper]")) {
+            // Create new shipper
+            String shipperNum = JOptionPane.showInputDialog(this, "Enter shipper number:", "SHIP-" + String.format("%03d", getNextShipperId()));
+            if (shipperNum == null) return 0;
+            
+            String carrier = JOptionPane.showInputDialog(this, "Enter carrier:", "FedEx");
+            if (carrier == null) carrier = "FedEx";
+            
+            String tracking = JOptionPane.showInputDialog(this, "Enter tracking number:", "TRK" + System.currentTimeMillis());
+            if (tracking == null) tracking = "";
+            
+            long newId = getNextShipperId();
+            TempShipper newShipper = new TempShipper(newId, shipperNum, carrier, tracking);
+            tempShippers.add(newShipper);
+            return newId;
+        } else {
+            return shipperIdMap.get(selected);
+        }
+    }
+    
+    // Select existing container or create new one
+    private long selectOrCreateContainer(long shipperId) {
+        ArrayList<String> containerList = new ArrayList<>();
+        containerList.add("[Create New Container]");
+        Map<String, Long> containerIdMap = new HashMap<>();
+        
+        for (TempContainer c : tempContainers) {
+            if (c.shipperId == shipperId) {
+                String display = c.containerNumber + " - " + c.containerType;
+                containerList.add(display);
+                containerIdMap.put(display, c.containerId);
+            }
+        }
+        
+        String selected = (String) JOptionPane.showInputDialog(
+            this,
+            "Select container:",
+            "Select Container",
+            JOptionPane.QUESTION_MESSAGE,
+            null,
+            containerList.toArray(),
+            containerList.get(0)
+        );
+        
+        if (selected == null) return 0;
+        
+        if (selected.equals("[Create New Container]")) {
+            // Create new container
+            String containerNum = JOptionPane.showInputDialog(this, "Enter container number:", "CTN-" + String.format("%03d", getNextContainerId()));
+            if (containerNum == null) return 0;
+            
+            String[] types = {"Box", "Pallet", "Crate", "Bag"};
+            String containerType = (String) JOptionPane.showInputDialog(
+                this,
+                "Select container type:",
+                "Container Type",
+                JOptionPane.QUESTION_MESSAGE,
+                null,
+                types,
+                types[0]
+            );
+            if (containerType == null) containerType = "Box";
+            
+            long newId = getNextContainerId();
+            TempContainer newContainer = new TempContainer(newId, shipperId, containerNum, containerType);
+            tempContainers.add(newContainer);
+            return newId;
+        } else {
+            return containerIdMap.get(selected);
         }
     }
     
@@ -477,6 +695,7 @@ public class OrderEditorDialog extends JDialog {
             BigDecimal total = subtotal.subtract(discount).add(tax);
             
             if (orderId == 0) {
+                // New order - create order first
                 String sql = "SELECT MAX(order_id) FROM orders";
                 ResultSet rs = stmt.executeQuery(sql);
                 long nextOrderId = 1;
@@ -490,7 +709,118 @@ public class OrderEditorDialog extends JDialog {
                     subtotal + ", " + discount + ", " + tax + ", " + total + ")";
                 stmt.execute(insertSql);
                 
+                // Save shippers with max ID lookup
+                rs = stmt.executeQuery("SELECT MAX(shipper_id) FROM shipper");
+                long nextShipperId = 1;
+                if (rs.next()) {
+                    nextShipperId = rs.getLong(1) + 1;
+                }
+                
+                Map<Long, Long> shipperIdMap = new HashMap<>(); // tempId -> dbId
+                for (int i = 0; i < tempShippers.size(); i++) {
+                    TempShipper shipper = tempShippers.get(i);
+                    long dbShipperId = nextShipperId + i;
+                    shipperIdMap.put(shipper.shipperId, dbShipperId);
+                    
+                    String shipperSql = "INSERT INTO shipper (shipper_id, order_id, shipper_number, carrier, tracking_number, ship_date, total_weight) VALUES (" +
+                        dbShipperId + ", " + orderId + ", '" + shipper.shipperNumber.replace("'", "''") + "', '" +
+                        shipper.carrier.replace("'", "''") + "', '" + shipper.trackingNumber.replace("'", "''") + "', " +
+                        "datetime('now'), 0)";
+                    stmt.execute(shipperSql);
+                }
+                
+                // Save containers
+                rs = stmt.executeQuery("SELECT MAX(container_id) FROM container");
+                long nextContainerId = 1;
+                if (rs.next()) {
+                    nextContainerId = rs.getLong(1) + 1;
+                }
+                
+                Map<Long, Long> containerIdMap = new HashMap<>(); // tempId -> dbId
+                for (int i = 0; i < tempContainers.size(); i++) {
+                    TempContainer container = tempContainers.get(i);
+                    long dbContainerId = nextContainerId + i;
+                    containerIdMap.put(container.containerId, dbContainerId);
+                    
+                    long dbShipperId = shipperIdMap.get(container.shipperId);
+                    String containerSql = "INSERT INTO container (container_id, shipper_id, order_id, container_number, container_type, weight, dimensions) VALUES (" +
+                        dbContainerId + ", " + dbShipperId + ", " + orderId + ", '" + container.containerNumber.replace("'", "''") + "', '" +
+                        container.containerType.replace("'", "''") + "', 0, '')";
+                    stmt.execute(containerSql);
+                }
+                
                 // Get max line_id to ensure globally unique line IDs
+                rs = stmt.executeQuery("SELECT MAX(line_id) FROM order_line");
+                long nextLineId = 1;
+                if (rs.next()) {
+                    nextLineId = rs.getLong(1) + 1;
+                }
+                
+                // Save order lines with container references
+                for (int i = 0; i < tempLines.size(); i++) {
+                    TempLine line = tempLines.get(i);
+                    long dbContainerId = containerIdMap.get(line.containerId);
+                    String lineSql = "INSERT INTO order_line (line_id, order_id, container_id, prod_id, prod_name, quantity, unit_price) VALUES (" +
+                        (nextLineId + i) + ", " + orderId + ", " + dbContainerId + ", " + line.prodId + ", '" + line.prodName.replace("'", "''") + "', " +
+                        line.qty + ", " + line.price + ")";
+                    stmt.execute(lineSql);
+                }
+            } else {
+                // Update existing order
+                String updateSql = "UPDATE orders SET cust_id = " + custId + ", cust_name = '" + customerName.replace("'", "''") + "', " +
+                    "subtotal = " + subtotal + ", discount = " + discount + ", tax = " + tax + ", total = " + total +
+                    " WHERE order_id = " + orderId;
+                stmt.execute(updateSql);
+                
+                // Delete and recreate everything
+                String deleteSql = "DELETE FROM order_line WHERE order_id = " + orderId;
+                stmt.execute(deleteSql);
+                deleteSql = "DELETE FROM container WHERE order_id = " + orderId;
+                stmt.execute(deleteSql);
+                deleteSql = "DELETE FROM shipper WHERE order_id = " + orderId;
+                stmt.execute(deleteSql);
+                
+                // Recreate shippers
+                ResultSet rs = stmt.executeQuery("SELECT MAX(shipper_id) FROM shipper");
+                long nextShipperId = 1;
+                if (rs.next()) {
+                    nextShipperId = rs.getLong(1) + 1;
+                }
+                
+                Map<Long, Long> shipperIdMap = new HashMap<>();
+                for (int i = 0; i < tempShippers.size(); i++) {
+                    TempShipper shipper = tempShippers.get(i);
+                    long dbShipperId = nextShipperId + i;
+                    shipperIdMap.put(shipper.shipperId, dbShipperId);
+                    
+                    String shipperSql = "INSERT INTO shipper (shipper_id, order_id, shipper_number, carrier, tracking_number, ship_date, total_weight) VALUES (" +
+                        dbShipperId + ", " + orderId + ", '" + shipper.shipperNumber.replace("'", "''") + "', '" +
+                        shipper.carrier.replace("'", "''") + "', '" + shipper.trackingNumber.replace("'", "''") + "', " +
+                        "datetime('now'), 0)";
+                    stmt.execute(shipperSql);
+                }
+                
+                // Recreate containers
+                rs = stmt.executeQuery("SELECT MAX(container_id) FROM container");
+                long nextContainerId = 1;
+                if (rs.next()) {
+                    nextContainerId = rs.getLong(1) + 1;
+                }
+                
+                Map<Long, Long> containerIdMap = new HashMap<>();
+                for (int i = 0; i < tempContainers.size(); i++) {
+                    TempContainer container = tempContainers.get(i);
+                    long dbContainerId = nextContainerId + i;
+                    containerIdMap.put(container.containerId, dbContainerId);
+                    
+                    long dbShipperId = shipperIdMap.get(container.shipperId);
+                    String containerSql = "INSERT INTO container (container_id, shipper_id, order_id, container_number, container_type, weight, dimensions) VALUES (" +
+                        dbContainerId + ", " + dbShipperId + ", " + orderId + ", '" + container.containerNumber.replace("'", "''") + "', '" +
+                        container.containerType.replace("'", "''") + "', 0, '')";
+                    stmt.execute(containerSql);
+                }
+                
+                // Recreate order lines
                 rs = stmt.executeQuery("SELECT MAX(line_id) FROM order_line");
                 long nextLineId = 1;
                 if (rs.next()) {
@@ -499,31 +829,9 @@ public class OrderEditorDialog extends JDialog {
                 
                 for (int i = 0; i < tempLines.size(); i++) {
                     TempLine line = tempLines.get(i);
-                    String lineSql = "INSERT INTO order_line (line_id, order_id, prod_id, prod_name, quantity, unit_price) VALUES (" +
-                        (nextLineId + i) + ", " + orderId + ", " + line.prodId + ", '" + line.prodName.replace("'", "''") + "', " +
-                        line.qty + ", " + line.price + ")";
-                    stmt.execute(lineSql);
-                }
-            } else {
-                String updateSql = "UPDATE orders SET cust_id = " + custId + ", cust_name = '" + customerName.replace("'", "''") + "', " +
-                    "subtotal = " + subtotal + ", discount = " + discount + ", tax = " + tax + ", total = " + total +
-                    " WHERE order_id = " + orderId;
-                stmt.execute(updateSql);
-                
-                String deleteSql = "DELETE FROM order_line WHERE order_id = " + orderId;
-                stmt.execute(deleteSql);
-                
-                // Get max line_id to ensure globally unique line IDs
-                ResultSet rs = stmt.executeQuery("SELECT MAX(line_id) FROM order_line");
-                long nextLineId = 1;
-                if (rs.next()) {
-                    nextLineId = rs.getLong(1) + 1;
-                }
-                
-                for (int i = 0; i < tempLines.size(); i++) {
-                    TempLine line = tempLines.get(i);
-                    String lineSql = "INSERT INTO order_line (line_id, order_id, prod_id, prod_name, quantity, unit_price) VALUES (" +
-                        (nextLineId + i) + ", " + orderId + ", " + line.prodId + ", '" + line.prodName.replace("'", "''") + "', " +
+                    long dbContainerId = containerIdMap.get(line.containerId);
+                    String lineSql = "INSERT INTO order_line (line_id, order_id, container_id, prod_id, prod_name, quantity, unit_price) VALUES (" +
+                        (nextLineId + i) + ", " + orderId + ", " + dbContainerId + ", " + line.prodId + ", '" + line.prodName.replace("'", "''") + "', " +
                         line.qty + ", " + line.price + ")";
                     stmt.execute(lineSql);
                 }
