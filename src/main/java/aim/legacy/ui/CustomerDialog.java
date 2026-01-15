@@ -18,10 +18,11 @@ public class CustomerDialog extends JDialog {
     private JTextField emailField;
     private JTextField phoneField;
     private JTextField addressField;
+    private JComboBox<String> customerTypeCombo;
     
     private long custId;
     
-    public CustomerDialog(Frame parent, long id, String name, String email, String phone, String address) {
+    public CustomerDialog(Frame parent, long id, String name, String email, String phone, String address, String customerType) {
         super(parent, id == 0 ? "Add Customer" : "Edit Customer", true);
         this.custId = id;
         
@@ -32,9 +33,12 @@ public class CustomerDialog extends JDialog {
             emailField.setText(email);
             phoneField.setText(phone);
             addressField.setText(address);
+            customerTypeCombo.setSelectedItem(customerType != null ? customerType : "STANDARD");
+        } else {
+            customerTypeCombo.setSelectedItem(customerType != null ? customerType : "STANDARD");
         }
         
-        setSize(400, 250);
+        setSize(400, 300);
         setLocationRelativeTo(parent);
     }
     
@@ -77,6 +81,14 @@ public class CustomerDialog extends JDialog {
         addressField = new JTextField(20);
         panel.add(addressField, gbc);
         
+        gbc.gridx = 0; gbc.gridy = 4; gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Customer Type:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        customerTypeCombo = new JComboBox<>(new String[]{"STANDARD", "PREMIUM", "VIP"});
+        panel.add(customerTypeCombo, gbc);
+        
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton saveButton = new JButton("Save");
         saveButton.addActionListener(e -> save());
@@ -86,7 +98,7 @@ public class CustomerDialog extends JDialog {
         cancelButton.addActionListener(e -> cancel());
         buttonPanel.add(cancelButton);
         
-        gbc.gridx = 0; gbc.gridy = 4; gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(buttonPanel, gbc);
         
@@ -126,5 +138,9 @@ public class CustomerDialog extends JDialog {
     
     public String getAddress() {
         return addressField.getText().trim();
+    }
+    
+    public String getCustomerType() {
+        return (String) customerTypeCombo.getSelectedItem();
     }
 }

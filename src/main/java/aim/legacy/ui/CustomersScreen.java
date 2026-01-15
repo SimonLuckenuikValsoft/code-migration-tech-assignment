@@ -44,7 +44,7 @@ public class CustomersScreen extends JPanel {
         
         add(topPanel, BorderLayout.NORTH);
         
-        String[] columns = {"ID", "Name", "Email", "Phone", "Address"};
+        String[] columns = {"ID", "Name", "Email", "Phone", "Address", "Customer Type"};
         tableModel = new DefaultTableModel(columns, 0) {
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -83,7 +83,7 @@ public class CustomersScreen extends JPanel {
         try {
             Connection conn = DB.getConn();
             Statement stmt = conn.createStatement();
-            String sql = "SELECT cust_id, cust_name, email, phone, address FROM customer ORDER BY cust_id";
+            String sql = "SELECT cust_id, cust_name, email, phone, address, customer_type FROM customer ORDER BY cust_id";
             ResultSet rs = stmt.executeQuery(sql);
             
             while (rs.next()) {
@@ -92,7 +92,8 @@ public class CustomersScreen extends JPanel {
                     rs.getString("cust_name"),
                     rs.getString("email"),
                     rs.getString("phone"),
-                    rs.getString("address")
+                    rs.getString("address"),
+                    rs.getString("customer_type")
                 });
             }
             
@@ -117,7 +118,7 @@ public class CustomersScreen extends JPanel {
         try {
             Connection conn = DB.getConn();
             Statement stmt = conn.createStatement();
-            String sql = "SELECT cust_id, cust_name, email, phone, address FROM customer " +
+            String sql = "SELECT cust_id, cust_name, email, phone, address, customer_type FROM customer " +
                         "WHERE LOWER(cust_name) LIKE '%" + query.toLowerCase() + "%' ORDER BY cust_id";
             ResultSet rs = stmt.executeQuery(sql);
             
@@ -127,7 +128,8 @@ public class CustomersScreen extends JPanel {
                     rs.getString("cust_name"),
                     rs.getString("email"),
                     rs.getString("phone"),
-                    rs.getString("address")
+                    rs.getString("address"),
+                    rs.getString("customer_type")
                 });
             }
             
@@ -141,7 +143,7 @@ public class CustomersScreen extends JPanel {
     // Open dialog to add new customer
     // Generates next ID by finding MAX(cust_id) + 1
     private void addCustomer() {
-        CustomerDialog dialog = new CustomerDialog((Frame) SwingUtilities.getWindowAncestor(this), 0, "", "", "", "");
+        CustomerDialog dialog = new CustomerDialog((Frame) SwingUtilities.getWindowAncestor(this), 0, "", "", "", "", "STANDARD");
         dialog.setVisible(true);
         
         if (dialog.isSaved()) {
@@ -155,11 +157,12 @@ public class CustomersScreen extends JPanel {
                     nextId = rs.getLong(1) + 1;
                 }
                 
-                String insertSql = "INSERT INTO customer (cust_id, cust_name, email, phone, address) VALUES (" +
+                String insertSql = "INSERT INTO customer (cust_id, cust_name, email, phone, address, customer_type) VALUES (" +
                     nextId + ", '" + dialog.getName().replace("'", "''") + "', '" +
                     dialog.getEmail().replace("'", "''") + "', '" +
                     dialog.getPhone().replace("'", "''") + "', '" +
-                    dialog.getAddress().replace("'", "''") + "')";
+                    dialog.getAddress().replace("'", "''") + "', '" +
+                    dialog.getCustomerType() + "')";
                 stmt.execute(insertSql);
                 
                 rs.close();
@@ -186,8 +189,9 @@ public class CustomersScreen extends JPanel {
         String email = (String) tableModel.getValueAt(selectedRow, 2);
         String phone = (String) tableModel.getValueAt(selectedRow, 3);
         String address = (String) tableModel.getValueAt(selectedRow, 4);
+        String customerType = (String) tableModel.getValueAt(selectedRow, 5);
         
-        CustomerDialog dialog = new CustomerDialog((Frame) SwingUtilities.getWindowAncestor(this), id, name, email, phone, address);
+        CustomerDialog dialog = new CustomerDialog((Frame) SwingUtilities.getWindowAncestor(this), id, name, email, phone, address, customerType);
         dialog.setVisible(true);
         
         if (dialog.isSaved()) {
@@ -197,7 +201,8 @@ public class CustomersScreen extends JPanel {
                 String sql = "UPDATE customer SET cust_name = '" + dialog.getName().replace("'", "''") + "', " +
                     "email = '" + dialog.getEmail().replace("'", "''") + "', " +
                     "phone = '" + dialog.getPhone().replace("'", "''") + "', " +
-                    "address = '" + dialog.getAddress().replace("'", "''") + "' " +
+                    "address = '" + dialog.getAddress().replace("'", "''") + "', " +
+                    "customer_type = '" + dialog.getCustomerType() + "' " +
                     "WHERE cust_id = " + id;
                 stmt.execute(sql);
                 
