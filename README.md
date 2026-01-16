@@ -83,8 +83,8 @@ To reset the database manually, delete the `orderentry.db` file before running.
 - Add multiple product line items to each order
 - Automatic calculation of:
   - Subtotal (sum of all line items)
-  - Discount (based on order value - see below)
-  - Tax (14.975% applied after discount)
+  - Discount (varies by value and customer type - see below)
+  - Tax (varies by customer type - applied after discount)
   - Grand total
 
 ### Order Reporting
@@ -115,6 +115,12 @@ The application uses SQLite for data storage. The database file (`orderentry.db`
 - 5 sample customers
 - 10 sample products
 - 2 sample orders
+
+### Database Schema
+- `customer` - Customer information and type
+- `product` - Product catalog
+- `orders` - Order headers with totals
+- `order_line` - Order line items (linked to containers)
 
 ## Project Structure
 

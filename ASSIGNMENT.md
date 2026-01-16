@@ -45,6 +45,7 @@ This repository contains a Java Swing application for managing customer orders. 
 
 - UI/UX improvements over the original
 - Any small enhancements you believe add value, with a short explanation of why
+- Order Reporting Logic migrated
 
 ## What We Evaluate
 
@@ -76,6 +77,6 @@ When the 90 minutes have elapsed:
 
 1. Push your final code to your private GitHub repository (main branch)
 2. Ensure the README includes build and run instructions
-3. Email simon.luckenuik@valsoftcorp.com with the repository link
+3. Email simon.luckenuik@valsoftcorp.com and hussein.sawwan@aimcom.com with the repository link
 
 Good luck !
